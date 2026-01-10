@@ -2,15 +2,9 @@ services:
   - type: web
     name: youtube-downloader
     env: node
-    buildCommand: |
-      npm install &&
-      curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /tmp/yt-dlp &&
-      chmod +x /tmp/yt-dlp &&
-      sudo mv /tmp/yt-dlp /usr/local/bin/yt-dlp
-    startCommand: npm start
+    buildCommand: npm install && mkdir -p bin && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o bin/yt-dlp && chmod +x bin/yt-dlp
+    startCommand: export PATH=$PATH:$PWD/bin && npm start
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
 
