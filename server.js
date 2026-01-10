@@ -212,14 +212,11 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId, ytdlpPath
             '--referer', 'https://www.youtube.com/',
             '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             '--add-header', 'Accept-Language:en-US,en;q=0.5',
-            '--add-header', 'Accept-Encoding:gzip, deflate',
             '--add-header', 'DNT:1',
             '--add-header', 'Connection:keep-alive',
             '--add-header', 'Upgrade-Insecure-Requests:1',
-            // Additional options to reduce bot detection
+            // Additional options to reduce bot detection - use mobile/web players
             '--extractor-args', 'youtube:player_client=android,web',
-            '--no-check-certificate',
-            '--prefer-insecure',
         ];
 
         if (format === 'audio') {
@@ -254,7 +251,12 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId, ytdlpPath
         currentProgress[sessionId] = { progress: 0, message: 'Preparing download...', title: videoTitle };
         
         console.log(`Using yt-dlp at: ${command}`);
-        const ytdlpProcess = spawn(command, args);
+        console.log(`yt-dlp args: ${args.slice(0, 5).join(' ')}... (total ${args.length} args)`);
+        
+        try {
+            const ytdlpProcess = spawn(command, args, {
+                stdio: ['ignore', 'pipe', 'pipe'] // stdin, stdout, stderr
+            });
 
         let downloadedBytes = 0;
         let totalBytes = 0;
