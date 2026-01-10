@@ -2,6 +2,7 @@ services:
   - type: web
     name: youtube-downloader
     env: node
+    nodeVersion: 20
     buildCommand: bash build.sh
     startCommand: npm start
     envVars:
