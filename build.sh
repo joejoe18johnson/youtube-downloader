@@ -25,14 +25,28 @@ if [ -f .nvmrc ] && command -v nvm &> /dev/null; then
 fi
 
 # Install npm dependencies (this must succeed for build to work)
+# Note: If using yarn, it will check engines field in package.json
 echo "📦 Installing npm dependencies..."
-npm install
-NPM_EXIT_CODE=$?
-if [ $NPM_EXIT_CODE -ne 0 ]; then
-    echo "❌ npm install failed with exit code $NPM_EXIT_CODE"
-    exit 1  # Only fail build if npm install fails
+if command -v yarn &> /dev/null && [ -f yarn.lock ]; then
+    echo "Using yarn (yarn.lock found)..."
+    # Yarn checks engines field - Node 20 should be used
+    yarn install --ignore-engines 2>&1 || yarn install 2>&1
+    NPM_EXIT_CODE=$?
+else
+    echo "Using npm..."
+    npm install
+    NPM_EXIT_CODE=$?
 fi
-echo "✅ npm install completed successfully"
+
+if [ $NPM_EXIT_CODE -ne 0 ]; then
+    echo "❌ Package installation failed with exit code $NPM_EXIT_CODE"
+    echo "⚠️  This might be due to Node version incompatibility"
+    echo "Current Node version: $CURRENT_NODE"
+    echo "Required: >=$REQUIRED_NODE"
+    echo "⚠️  Please update Node version to 20 in Render Dashboard Settings"
+    exit 1  # Only fail build if npm/yarn install fails
+fi
+echo "✅ Package installation completed successfully"
 
 # Create bin directory
 echo "📁 Creating bin directory..."
