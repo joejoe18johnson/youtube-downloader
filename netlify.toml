@@ -1,0 +1,22 @@
+[build]
+  publish = "."
+  command = "npm install"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  
+# Note: Netlify Functions have timeout limits:
+# - Free tier: 10 seconds
+# - Pro tier: 26 seconds  
+# - Business: 60 seconds
+# 
+# YouTube video downloads typically take longer than these limits.
+# Consider using Netlify Background Functions for longer operations,
+# or deploy to a platform that supports long-running processes (Render, Railway, Heroku, etc.)
+
