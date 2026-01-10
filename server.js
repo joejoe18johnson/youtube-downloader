@@ -1252,22 +1252,72 @@ app.listen(PORT, async () => {
     }
     
     // Check for yt-dlp at startup
-    const ytdlpPath = await checkYtDlp();
+    let ytdlpPath = await checkYtDlp();
     if (ytdlpPath) {
         console.log('✅ yt-dlp is available - will use it for downloads (recommended)');
         if (ytdlpPath !== 'yt-dlp' && ytdlpPath !== 'youtube-dl') {
             console.log(`   Location: ${ytdlpPath}`);
         }
     } else {
-        console.log('⚠️  yt-dlp not found - will fallback to @distube/ytdl-core (may not work reliably)');
-        console.log('   To install: brew install yt-dlp (Mac) or pip install yt-dlp (Linux)');
-        if (process.env.RENDER) {
-            console.log('   ⚠️  On Render: The bin/ directory may not be persisted between build and runtime');
-            console.log('   ⚠️  Check Render build logs for "yt-dlp INSTALLATION SUCCESSFUL" message');
-            console.log('   ⚠️  If build shows success but runtime doesn\'t find it, this is a Render file persistence issue');
-            console.log('   ⚠️  Solution: Install yt-dlp in the build command or use a different location');
-        } else {
-            console.log('   For Render: Check build logs to ensure yt-dlp installation succeeded');
+        console.log('⚠️  yt-dlp not found at startup - attempting runtime installation...');
+        
+        // Try to download yt-dlp at runtime if we're on Render and bin directory exists but file doesn't
+        if (process.env.RENDER && fs.existsSync(binDir)) {
+            console.log('   Attempting to download yt-dlp to bin directory at runtime...');
+            try {
+                const https = require('https');
+                const file = fs.createWriteStream(ytdlpExpectedPath);
+                
+                await new Promise((resolve, reject) => {
+                    https.get('https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp', (response) => {
+                        if (response.statusCode === 302 || response.statusCode === 301) {
+                            // Follow redirect
+                            https.get(response.headers.location, (redirectResponse) => {
+                                redirectResponse.pipe(file);
+                                redirectResponse.on('end', () => {
+                                    file.close();
+                                    resolve();
+                                });
+                            }).on('error', reject);
+                        } else {
+                            response.pipe(file);
+                            response.on('end', () => {
+                                file.close();
+                                resolve();
+                            });
+                        }
+                    }).on('error', reject);
+                    
+                    setTimeout(() => reject(new Error('Download timeout')), 30000);
+                });
+                
+                // Make executable
+                fs.chmodSync(ytdlpExpectedPath, 0o755);
+                
+                // Verify it works
+                ytdlpPath = await checkYtDlp();
+                if (ytdlpPath) {
+                    console.log('   ✅ yt-dlp downloaded and installed successfully at runtime!');
+                    console.log(`   Location: ${ytdlpPath}`);
+                } else {
+                    console.log('   ❌ Runtime download succeeded but file is not usable');
+                }
+            } catch (runtimeDownloadError) {
+                console.log('   ❌ Runtime download failed:', runtimeDownloadError.message);
+                console.log('   ⚠️  Will fallback to @distube/ytdl-core (may not work reliably)');
+            }
+        }
+        
+        if (!ytdlpPath) {
+            console.log('⚠️  yt-dlp not available - will fallback to @distube/ytdl-core (may not work reliably)');
+            console.log('   To install: brew install yt-dlp (Mac) or pip install yt-dlp (Linux)');
+            if (process.env.RENDER) {
+                console.log('   ⚠️  On Render: Check build logs for "yt-dlp INSTALLATION SUCCESSFUL" message');
+                console.log('   ⚠️  If build shows success but runtime doesn\'t find it, files may not persist between build and runtime');
+                console.log('   ⚠️  The runtime download attempt above may have failed due to network or permissions');
+            } else {
+                console.log('   For Render: Check build logs to ensure yt-dlp installation succeeded');
+            }
         }
     }
     
