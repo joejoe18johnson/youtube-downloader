@@ -215,12 +215,8 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId, ytdlpPath
             '--add-header', 'DNT:1',
             '--add-header', 'Connection:keep-alive',
             '--add-header', 'Upgrade-Insecure-Requests:1',
-            // Try different player clients to avoid bot detection (try ios first, then fallback)
-            // iOS player is often less detected
-            '--extractor-args', 'youtube:player_client=ios,android,mweb,web',
-            // Additional options to reduce bot detection
-            '--no-check-certificate',
-            '--no-warnings',
+            // Try different player clients to avoid bot detection (ios and tv_embedded are often less detected)
+            '--extractor-args', 'youtube:player_client=ios,tv_embedded,android,mweb,web',
         ];
 
         if (format === 'audio') {
@@ -314,7 +310,7 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId, ytdlpPath
                         
                         // Handle bot detection specifically
                         if (errorDetail.includes('Sign in to confirm') || errorDetail.includes('not a bot') || errorDetail.includes('cookies')) {
-                            errorMsg = 'YouTube is blocking automated access. This video may require authentication or may be temporarily unavailable. Please try again later or use a different video.';
+                            errorMsg = 'YouTube is blocking automated access with yt-dlp. The server will try to use an alternative method, but this video may require authentication. If this persists, try again later or use a different video.';
                         } else if (errorDetail.includes('Private video') || errorDetail.includes('private')) {
                             errorMsg = 'This video is private and cannot be downloaded.';
                         } else if (errorDetail.includes('unavailable') || errorDetail.includes('deleted')) {
@@ -324,7 +320,7 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId, ytdlpPath
                         }
                     }
                 } else if (stderrText.includes('Sign in to confirm') || stderrText.includes('not a bot')) {
-                    errorMsg = 'YouTube is blocking automated access. This video may require authentication or may be temporarily unavailable. Please try again later or use a different video.';
+                    errorMsg = 'YouTube is blocking automated access with yt-dlp. The server will try to use an alternative method, but this video may require authentication. If this persists, try again later or use a different video.';
                 }
                 
                 console.error('yt-dlp stderr:', stderrText);
