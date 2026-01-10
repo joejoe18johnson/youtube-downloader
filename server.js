@@ -67,6 +67,20 @@ async function checkYtDlp() {
             }
         }
         
+        // Check process.cwd() bin directory (for Render)
+        const cwdBinPath = path.join(process.cwd(), 'bin', 'yt-dlp');
+        if (fs.existsSync(cwdBinPath)) {
+            try {
+                const { stdout } = await execAsync(`"${cwdBinPath}" --version`, { timeout: 2000 });
+                if (stdout.trim()) {
+                    console.log(`✅ yt-dlp found at: ${cwdBinPath} (version: ${stdout.trim()})`);
+                    return cwdBinPath;
+                }
+            } catch (err) {
+                console.warn(`yt-dlp found at ${cwdBinPath} but version check failed:`, err.message);
+            }
+        }
+        
         // Try multiple paths and methods
         const commands = [
             'which yt-dlp',
@@ -74,8 +88,7 @@ async function checkYtDlp() {
             'command -v yt-dlp',
             'test -f /usr/local/bin/yt-dlp && echo /usr/local/bin/yt-dlp',
             'test -f /usr/bin/yt-dlp && echo /usr/bin/yt-dlp',
-            'test -f ~/.local/bin/yt-dlp && echo ~/.local/bin/yt-dlp',
-            `test -f ${path.join(process.cwd(), 'bin', 'yt-dlp')} && echo ${path.join(process.cwd(), 'bin', 'yt-dlp')}`
+            'test -f ~/.local/bin/yt-dlp && echo ~/.local/bin/yt-dlp'
         ];
         
         for (const cmd of commands) {
