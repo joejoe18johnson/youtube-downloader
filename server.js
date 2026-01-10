@@ -53,6 +53,20 @@ function checkFFmpeg() {
 // Check if yt-dlp is available
 async function checkYtDlp() {
     try {
+        // First check local bin directory (for Render deployments)
+        const localBinPath = path.join(__dirname, 'bin', 'yt-dlp');
+        if (fs.existsSync(localBinPath)) {
+            try {
+                const { stdout } = await execAsync(`"${localBinPath}" --version`, { timeout: 2000 });
+                if (stdout.trim()) {
+                    console.log(`✅ yt-dlp found at: ${localBinPath} (version: ${stdout.trim()})`);
+                    return localBinPath; // Return path for use in spawn
+                }
+            } catch (err) {
+                console.warn(`yt-dlp found at ${localBinPath} but version check failed:`, err.message);
+            }
+        }
+        
         // Try multiple paths and methods
         const commands = [
             'which yt-dlp',
@@ -60,33 +74,42 @@ async function checkYtDlp() {
             'command -v yt-dlp',
             'test -f /usr/local/bin/yt-dlp && echo /usr/local/bin/yt-dlp',
             'test -f /usr/bin/yt-dlp && echo /usr/bin/yt-dlp',
-            'test -f ~/.local/bin/yt-dlp && echo ~/.local/bin/yt-dlp'
+            'test -f ~/.local/bin/yt-dlp && echo ~/.local/bin/yt-dlp',
+            `test -f ${path.join(process.cwd(), 'bin', 'yt-dlp')} && echo ${path.join(process.cwd(), 'bin', 'yt-dlp')}`
         ];
         
         for (const cmd of commands) {
             try {
                 const { stdout } = await execAsync(cmd, { timeout: 2000 });
                 if (stdout.trim().length > 0) {
-                    console.log(`✅ yt-dlp found at: ${stdout.trim()}`);
-                    return true;
+                    const foundPath = stdout.trim();
+                    console.log(`✅ yt-dlp found at: ${foundPath}`);
+                    return foundPath;
                 }
             } catch {
                 continue;
             }
         }
         
-        // Final check: try to run yt-dlp --version
+        // Final check: try to run yt-dlp --version (will use PATH)
         try {
             const { stdout } = await execAsync('yt-dlp --version', { timeout: 2000 });
             if (stdout.trim()) {
-                console.log(`✅ yt-dlp is available (version: ${stdout.trim()})`);
-                return true;
+                console.log(`✅ yt-dlp is available via PATH (version: ${stdout.trim()})`);
+                return 'yt-dlp'; // Return command name for use in spawn
             }
         } catch {
             // yt-dlp not available
         }
         
         console.warn('⚠️  yt-dlp not found. Will fallback to ytdl-core (may not work).');
+        console.warn('   Checked paths:', [
+            localBinPath,
+            '/usr/local/bin/yt-dlp',
+            '/usr/bin/yt-dlp',
+            '~/.local/bin/yt-dlp',
+            'PATH environment variable'
+        ].join(', '));
         return false;
     } catch (error) {
         console.warn('⚠️  Error checking for yt-dlp:', error.message);
@@ -95,20 +118,29 @@ async function checkYtDlp() {
 }
 
 // Download using yt-dlp and stream directly to HTTP response (more reliable than ytdl-core)
-async function downloadWithYtDlpStreaming(url, format, res, sessionId) {
+async function downloadWithYtDlpStreaming(url, format, res, sessionId, ytdlpPath = null) {
     const hasFFmpeg = await checkFFmpeg();
+    
+    // Get yt-dlp path if not provided
+    if (!ytdlpPath) {
+        ytdlpPath = await checkYtDlp();
+        if (!ytdlpPath) {
+            throw new Error('yt-dlp not found');
+        }
+    }
     
     return new Promise(async (resolve, reject) => {
         // First get video info to determine filename
         let videoTitle = 'download';
         try {
-            // Get video title using yt-dlp
-            const { stdout: infoOutput } = await execAsync(`yt-dlp --get-title --no-playlist "${url}"`, { timeout: 10000 });
+            // Get video title using yt-dlp (use path if it's a full path, otherwise use as command)
+            const ytdlpCmd = ytdlpPath.includes('/') ? `"${ytdlpPath}"` : ytdlpPath;
+            const { stdout: infoOutput } = await execAsync(`${ytdlpCmd} --get-title --no-playlist "${url}"`, { timeout: 10000 });
             if (infoOutput && infoOutput.trim()) {
                 videoTitle = sanitizeFilename(infoOutput.trim());
             }
         } catch (err) {
-            console.warn('Could not get video title from yt-dlp, using default');
+            console.warn('Could not get video title from yt-dlp, using default:', err.message);
         }
         
         let args = [
@@ -145,10 +177,11 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId) {
             res.setHeader('Content-Disposition', `attachment; filename="${videoTitle}.mp4"`);
         }
 
-        // Try yt-dlp first, fallback to youtube-dl
-        let command = 'yt-dlp';
+        // Use the yt-dlp path (or command name)
+        let command = ytdlpPath;
         currentProgress[sessionId] = { progress: 0, message: 'Preparing download...', title: videoTitle };
         
+        console.log(`Using yt-dlp at: ${command}`);
         const ytdlpProcess = spawn(command, args);
 
         let downloadedBytes = 0;
@@ -337,11 +370,11 @@ app.post('/api/download', async (req, res) => {
         };
         
         // Check if yt-dlp is available - use it as it's more reliable
-        const hasYtDlp = await checkYtDlp();
+        const ytdlpPath = await checkYtDlp();
         
-        if (hasYtDlp) {
+        if (ytdlpPath) {
             console.log('Using yt-dlp for download (more reliable)');
-            await downloadWithYtDlpStreaming(url, format, res, session);
+            await downloadWithYtDlpStreaming(url, format, res, session, ytdlpPath);
             return; // Exit early if yt-dlp download succeeds
         }
         
@@ -359,10 +392,10 @@ app.post('/api/download', async (req, res) => {
                 ytdlError.message.includes('Could not extract functions') ||
                 ytdlError.message.includes('Sign in to confirm your age'))) {
                 // Check again if yt-dlp is available (might have been installed)
-                const hasYtDlp = await checkYtDlp();
-                if (hasYtDlp) {
+                const ytdlpPath = await checkYtDlp();
+                if (ytdlpPath) {
                     console.log('yt-dlp found! Retrying with yt-dlp...');
-                    await downloadWithYtDlpStreaming(url, format, res, session);
+                    await downloadWithYtDlpStreaming(url, format, res, session, ytdlpPath);
                     return; // Exit early if yt-dlp download succeeds
                 }
                 
@@ -1135,12 +1168,16 @@ app.listen(PORT, async () => {
     console.log('\nChecking dependencies...');
     
     // Check for yt-dlp at startup
-    const hasYtDlp = await checkYtDlp();
-    if (hasYtDlp) {
+    const ytdlpPath = await checkYtDlp();
+    if (ytdlpPath) {
         console.log('✅ yt-dlp is available - will use it for downloads (recommended)');
+        if (ytdlpPath !== 'yt-dlp' && ytdlpPath !== 'youtube-dl') {
+            console.log(`   Location: ${ytdlpPath}`);
+        }
     } else {
         console.log('⚠️  yt-dlp not found - will fallback to @distube/ytdl-core (may not work reliably)');
         console.log('   To install: brew install yt-dlp (Mac) or pip install yt-dlp (Linux)');
+        console.log('   For Render: Check build logs to ensure yt-dlp installation succeeded');
     }
     
     // Check for FFmpeg
