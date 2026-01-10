@@ -1,17 +1,24 @@
 #!/bin/bash
 # Build script for Render deployment
+# Note: This script should NOT fail the build even if yt-dlp installation fails
+# The server can start without yt-dlp and will fallback to ytdl-core
+
+set +e  # Don't exit on errors - we want build to succeed even if yt-dlp fails
 
 echo "🔨 Starting build process..."
 echo "Current directory: $(pwd)"
-echo "Node version: $(node --version)"
-echo "NPM version: $(npm --version)"
+echo "Node version: $(node --version 2>/dev/null || echo 'not available')"
+echo "NPM version: $(npm --version 2>/dev/null || echo 'not available')"
 
-# Install npm dependencies
+# Install npm dependencies (this must succeed for build to work)
 echo "📦 Installing npm dependencies..."
-if ! npm install; then
-    echo "❌ npm install failed"
-    exit 1
+npm install
+NPM_EXIT_CODE=$?
+if [ $NPM_EXIT_CODE -ne 0 ]; then
+    echo "❌ npm install failed with exit code $NPM_EXIT_CODE"
+    exit 1  # Only fail build if npm install fails
 fi
+echo "✅ npm install completed successfully"
 
 # Create bin directory
 echo "📁 Creating bin directory..."
@@ -48,48 +55,74 @@ fi
 # Check if download succeeded
 if [ "$DOWNLOAD_SUCCESS" = false ]; then
     echo "❌ Failed to download yt-dlp using both curl and wget"
-    echo "⚠️  Server will fallback to ytdl-core (may not work reliably)"
-    echo "Checking if file exists anyway..."
+    echo "Checking if file exists from previous build..."
     if [ -f bin/yt-dlp ]; then
         echo "✅ File exists (might be from previous build)"
         DOWNLOAD_SUCCESS=true
     else
-        exit 0  # Don't fail build - let server start and fallback to ytdl-core
+        echo "⚠️  yt-dlp is not available - server will fallback to ytdl-core (may not work reliably)"
+        echo "⚠️  Build will continue successfully, but downloads may fail"
+        DOWNLOAD_SUCCESS=false
     fi
 fi
 
-# Make yt-dlp executable
+# Make yt-dlp executable and verify
 if [ "$DOWNLOAD_SUCCESS" = true ]; then
     echo "🔧 Making yt-dlp executable..."
-    chmod +x bin/yt-dlp || {
-        echo "❌ Could not make yt-dlp executable"
-        exit 1
-    }
+    if chmod +x bin/yt-dlp; then
+        echo "✅ Made yt-dlp executable"
+    else
+        echo "⚠️  Could not make yt-dlp executable (might already be executable or permission issue)"
+    fi
     
     # Verify installation
     echo "✅ Verifying yt-dlp installation..."
-    if [ -f bin/yt-dlp ] && [ -x bin/yt-dlp ]; then
-        echo "✅ yt-dlp file exists and is executable"
+    if [ -f bin/yt-dlp ]; then
+        echo "✅ yt-dlp file exists"
         echo "File location: $(pwd)/bin/yt-dlp"
-        echo "File size: $(ls -lh bin/yt-dlp | awk '{print $5}')"
+        FILE_SIZE=$(ls -lh bin/yt-dlp 2>/dev/null | awk '{print $5}' || echo "unknown")
+        echo "File size: $FILE_SIZE"
         
-        # Try to get version
-        if ./bin/yt-dlp --version 2>&1; then
-            VERSION=$(./bin/yt-dlp --version 2>&1 | head -1)
-            echo "✅ yt-dlp version: $VERSION"
+        # Check if executable
+        if [ -x bin/yt-dlp ]; then
+            echo "✅ yt-dlp is executable"
+            
+            # Try to get version (don't fail build if this fails)
+            if ./bin/yt-dlp --version 2>&1 | head -1; then
+                VERSION=$(./bin/yt-dlp --version 2>&1 | head -1)
+                echo "✅ yt-dlp version: $VERSION"
+            else
+                echo "⚠️  yt-dlp version check failed (but file exists and is executable)"
+                echo "⚠️  Server will try to use it - if it fails, will fallback to ytdl-core"
+            fi
         else
-            echo "⚠️  yt-dlp version check failed (but file exists and is executable)"
-            echo "This might be OK - server will try to use it"
+            echo "⚠️  yt-dlp file exists but is not executable"
+            echo "⚠️  Attempting to make it executable again..."
+            chmod +x bin/yt-dlp || echo "⚠️  Still not executable - server may not be able to use it"
         fi
     else
-        echo "❌ yt-dlp installation verification failed"
-        echo "File exists: $([ -f bin/yt-dlp ] && echo 'yes' || echo 'no')"
-        echo "File executable: $([ -x bin/yt-dlp ] && echo 'yes' || echo 'no')"
-        exit 1
+        echo "❌ yt-dlp file does not exist after download"
+        echo "⚠️  Build will continue but server will fallback to ytdl-core"
     fi
+else
+    echo "⚠️  yt-dlp download was not successful and file does not exist"
+    echo "⚠️  Server will start but will fallback to ytdl-core (may not work reliably)"
 fi
 
+echo ""
 echo "✅ Build completed successfully!"
+if [ "$DOWNLOAD_SUCCESS" = true ]; then
+    echo "✅ yt-dlp is installed and ready to use"
+else
+    echo "⚠️  yt-dlp is NOT available - server will use ytdl-core as fallback"
+    echo "⚠️  Downloads may fail with 'YouTube structure change' error"
+fi
+echo ""
 echo "Final check - bin directory contents:"
-ls -la bin/ 2>/dev/null || echo "bin directory not accessible"
+ls -la bin/ 2>/dev/null || echo "bin directory not accessible or empty"
+echo ""
+
+# Always exit successfully (build succeeded even if yt-dlp installation failed)
+# The only time we exit with non-zero is if npm install fails (which we check earlier)
+exit 0
 
