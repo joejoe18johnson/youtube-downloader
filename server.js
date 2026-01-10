@@ -1261,50 +1261,120 @@ app.listen(PORT, async () => {
     } else {
         console.log('⚠️  yt-dlp not found at startup - attempting runtime installation...');
         
-        // Try to download yt-dlp at runtime if we're on Render and bin directory exists but file doesn't
-        if (process.env.RENDER && fs.existsSync(binDir)) {
+        // Try to download yt-dlp at runtime if we're on Render
+        if (process.env.RENDER) {
             console.log('   Attempting to download yt-dlp to bin directory at runtime...');
             try {
-                const https = require('https');
-                const file = fs.createWriteStream(ytdlpExpectedPath);
+                // Create bin directory if it doesn't exist
+                if (!fs.existsSync(binDir)) {
+                    console.log('   Creating bin directory...');
+                    fs.mkdirSync(binDir, { recursive: true });
+                }
                 
-                await new Promise((resolve, reject) => {
-                    https.get('https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp', (response) => {
-                        if (response.statusCode === 302 || response.statusCode === 301) {
-                            // Follow redirect
-                            https.get(response.headers.location, (redirectResponse) => {
-                                redirectResponse.pipe(file);
-                                redirectResponse.on('end', () => {
-                                    file.close();
-                                    resolve();
-                                });
-                            }).on('error', reject);
-                        } else {
-                            response.pipe(file);
-                            response.on('end', () => {
-                                file.close();
-                                resolve();
-                            });
-                        }
-                    }).on('error', reject);
+                // Try using child_process with curl/wget first (more reliable than https module)
+                const { execSync } = require('child_process');
+                let downloadSuccess = false;
+                
+                // Try curl first
+                try {
+                    console.log('   Trying curl...');
+                    execSync(`curl -f -L --retry 3 --max-time 60 "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -o "${ytdlpExpectedPath}"`, {
+                        stdio: 'inherit',
+                        timeout: 65000
+                    });
+                    downloadSuccess = true;
+                    console.log('   ✅ Downloaded via curl');
+                } catch (curlError) {
+                    console.log('   ⚠️  curl failed, trying wget...');
+                    // Try wget
+                    try {
+                        execSync(`wget --timeout=60 --tries=3 "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -O "${ytdlpExpectedPath}"`, {
+                            stdio: 'inherit',
+                            timeout: 65000
+                        });
+                        downloadSuccess = true;
+                        console.log('   ✅ Downloaded via wget');
+                    } catch (wgetError) {
+                        console.log('   ⚠️  wget also failed, trying https module...');
+                    }
+                }
+                
+                // Fallback to https module if curl/wget failed
+                if (!downloadSuccess) {
+                    const https = require('https');
+                    const http = require('http');
+                    const file = fs.createWriteStream(ytdlpExpectedPath);
+                    const url = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
                     
-                    setTimeout(() => reject(new Error('Download timeout')), 30000);
-                });
+                    await new Promise((resolve, reject) => {
+                        const client = url.startsWith('https') ? https : http;
+                        const request = client.get(url, (response) => {
+                            // Handle redirects
+                            if (response.statusCode === 301 || response.statusCode === 302 || response.statusCode === 307 || response.statusCode === 308) {
+                                file.close();
+                                fs.unlinkSync(ytdlpExpectedPath).catch(() => {});
+                                const redirectUrl = response.headers.location;
+                                console.log('   Following redirect to:', redirectUrl);
+                                return client.get(redirectUrl, (redirectResponse) => {
+                                    redirectResponse.pipe(file);
+                                    redirectResponse.on('end', resolve);
+                                    redirectResponse.on('error', reject);
+                                }).on('error', reject);
+                            }
+                            
+                            if (response.statusCode !== 200) {
+                                file.close();
+                                fs.unlinkSync(ytdlpExpectedPath).catch(() => {});
+                                return reject(new Error(`HTTP ${response.statusCode}`));
+                            }
+                            
+                            response.pipe(file);
+                            response.on('end', resolve);
+                            response.on('error', reject);
+                        });
+                        
+                        request.on('error', reject);
+                        request.setTimeout(60000, () => {
+                            request.destroy();
+                            reject(new Error('Download timeout'));
+                        });
+                    });
+                    
+                    file.close();
+                    downloadSuccess = true;
+                    console.log('   ✅ Downloaded via https module');
+                }
                 
                 // Make executable
-                fs.chmodSync(ytdlpExpectedPath, 0o755);
-                
-                // Verify it works
-                ytdlpPath = await checkYtDlp();
-                if (ytdlpPath) {
-                    console.log('   ✅ yt-dlp downloaded and installed successfully at runtime!');
-                    console.log(`   Location: ${ytdlpPath}`);
+                if (fs.existsSync(ytdlpExpectedPath)) {
+                    fs.chmodSync(ytdlpExpectedPath, 0o755);
+                    console.log('   ✅ Made yt-dlp executable');
+                    
+                    // Verify it works
+                    ytdlpPath = await checkYtDlp();
+                    if (ytdlpPath) {
+                        console.log('   ✅✅✅ yt-dlp downloaded and installed successfully at runtime!');
+                        console.log(`   Location: ${ytdlpPath}`);
+                    } else {
+                        console.log('   ⚠️  Runtime download succeeded but file is not usable (may need version check)');
+                        // Even if version check fails, try to use it if it exists and is executable
+                        if (fs.existsSync(ytdlpExpectedPath)) {
+                            try {
+                                fs.accessSync(ytdlpExpectedPath, fs.constants.X_OK);
+                                console.log('   File exists and is executable - will try to use it anyway');
+                                ytdlpPath = ytdlpExpectedPath;
+                            } catch {
+                                console.log('   File exists but is not executable');
+                            }
+                        }
+                    }
                 } else {
-                    console.log('   ❌ Runtime download succeeded but file is not usable');
+                    throw new Error('File was not created after download');
                 }
             } catch (runtimeDownloadError) {
                 console.log('   ❌ Runtime download failed:', runtimeDownloadError.message);
                 console.log('   ⚠️  Will fallback to @distube/ytdl-core (may not work reliably)');
+                console.log('   Stack:', runtimeDownloadError.stack);
             }
         }
         
