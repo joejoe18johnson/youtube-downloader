@@ -298,12 +298,29 @@ app.post('/api/download', async (req, res) => {
             // Handle parsing errors specifically
             if (ytdlError.message && (ytdlError.message.includes('Error when parsing watch.html') || 
                 ytdlError.message.includes('maybe YouTube made a change') ||
-                ytdlError.message.includes('Could not extract functions'))) {
-                throw new Error('YouTube has changed their website structure and the JavaScript library cannot parse it. For better compatibility, please install yt-dlp:\n\n' +
+                ytdlError.message.includes('Could not extract functions') ||
+                ytdlError.message.includes('Sign in to confirm your age'))) {
+                // Check again if yt-dlp is available (might have been installed)
+                const hasYtDlp = await checkYtDlp();
+                if (hasYtDlp) {
+                    console.log('yt-dlp found! Retrying with yt-dlp...');
+                    await downloadWithYtDlpStreaming(url, format, res, session);
+                    return; // Exit early if yt-dlp download succeeds
+                }
+                
+                // Provide helpful error message with installation instructions
+                const errorMsg = process.env.RENDER ? 
+                    'YouTube has changed their website structure. Please install yt-dlp in your Render build command:\n\n' +
+                    'Build Command: npm install && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /tmp/yt-dlp && chmod +x /tmp/yt-dlp && sudo mv /tmp/yt-dlp /usr/local/bin/yt-dlp\n\n' +
+                    'See RENDER_DEPLOY.md for detailed instructions.' :
+                    'YouTube has changed their website structure and the JavaScript library cannot parse it. For better compatibility, please install yt-dlp:\n\n' +
                     '• Mac: brew install yt-dlp\n' +
-                    '• Or: pip install yt-dlp\n' +
+                    '• Linux: pip install yt-dlp OR curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && chmod +x /usr/local/bin/yt-dlp\n' +
+                    '• Windows: pip install yt-dlp\n' +
                     '• Then restart the server.\n\n' +
-                    'Alternatively, wait for the library maintainers to update @distube/ytdl-core.');
+                    'Alternatively, wait for the library maintainers to update @distube/ytdl-core.';
+                    
+                throw new Error(errorMsg);
             }
             throw ytdlError;
         }

@@ -46,7 +46,36 @@ sudo apt update
 sudo apt install nodejs npm
 ```
 
-### Step 2: Install FFmpeg (Recommended)
+### Step 2: Install yt-dlp (Required for Reliable Downloads)
+
+**yt-dlp is required** for reliable YouTube downloads because YouTube frequently changes their website structure, and the JavaScript library (`@distube/ytdl-core`) often breaks. `yt-dlp` is actively maintained and more reliable.
+
+**On Mac (using Homebrew):**
+```bash
+brew install yt-dlp
+```
+
+**On Linux (using pip):**
+```bash
+pip install yt-dlp
+# OR using apt (if available)
+sudo apt install yt-dlp
+# OR download binary directly
+curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && chmod +x /usr/local/bin/yt-dlp
+```
+
+**On Windows:**
+```bash
+pip install yt-dlp
+# OR download from: https://github.com/yt-dlp/yt-dlp/releases/latest
+```
+
+**Verify installation:**
+```bash
+yt-dlp --version
+```
+
+### Step 3: Install FFmpeg (Recommended)
 
 FFmpeg is required for MP3 audio conversion and video/audio merging.
 
@@ -65,7 +94,7 @@ brew install ffmpeg
 sudo apt install ffmpeg
 ```
 
-### Step 3: Install Dependencies
+### Step 4: Install Dependencies
 
 Navigate to the project directory and install npm packages:
 
@@ -76,8 +105,10 @@ npm install
 
 This will install:
 - `express` - Web server framework
-- `ytdl-core` - YouTube downloader library
+- `@distube/ytdl-core` - YouTube downloader library (fallback if yt-dlp not available)
 - `fluent-ffmpeg` - FFmpeg wrapper for Node.js
+
+**Note:** The server will automatically use `yt-dlp` if installed (recommended), and fallback to `@distube/ytdl-core` if not available (may not work due to YouTube API changes).
 
 ## Usage
 
@@ -183,6 +214,36 @@ If you see errors about FFmpeg not being found:
 - Some videos may have restrictions (age-restricted, region-locked, etc.)
 - Private videos cannot be downloaded
 
+### Error: "YouTube has changed their website structure"
+
+**This error means:** The JavaScript library (`@distube/ytdl-core`) cannot parse YouTube's website because YouTube changed their structure.
+
+**Solution:** Install `yt-dlp` for better compatibility (required for reliable downloads):
+
+**On Mac:**
+```bash
+brew install yt-dlp
+```
+
+**On Linux:**
+```bash
+pip install yt-dlp
+# OR
+curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && chmod +x /usr/local/bin/yt-dlp
+```
+
+**On Windows:**
+```bash
+pip install yt-dlp
+```
+
+**Then restart your server:**
+```bash
+npm start
+```
+
+**For Render deployment:** See `RENDER_DEPLOY.md` for detailed instructions on installing `yt-dlp` on Render.
+
 ### Download Fails
 
 Common reasons:
@@ -190,12 +251,14 @@ Common reasons:
 - YouTube video is unavailable
 - Video format not supported
 - Server timeout (for very large files)
+- `yt-dlp` not installed (required for reliable downloads)
 
 Try:
-1. Check your internet connection
-2. Verify the YouTube URL works in a browser
-3. Try a different video
-4. Check server console for error messages
+1. Install `yt-dlp` (see above)
+2. Check your internet connection
+3. Verify the YouTube URL works in a browser
+4. Try a different video
+5. Check server console for error messages
 
 ## Development
 
