@@ -1213,13 +1213,43 @@ app.get('*', (req, res) => {
 // Start server
 app.listen(PORT, async () => {
     console.log(`YouTube Downloader server running on http://localhost:${PORT}`);
-    console.log('Registered routes:');
+    console.log('Node version:', process.version);
+    console.log('Platform:', process.platform);
+    console.log('Current working directory:', process.cwd());
+    console.log('__dirname:', __dirname);
+    console.log('\nRegistered routes:');
     console.log('  POST /api/download');
     console.log('  POST /api/test-post');
     console.log('  GET /api/test');
     console.log('  GET /api/progress/:sessionId');
     console.log('  GET /api/mobile-download/:sessionId');
     console.log('\nChecking dependencies...');
+    
+    // Detailed check for bin directory
+    const binDir = path.join(process.cwd(), 'bin');
+    const ytdlpExpectedPath = path.join(binDir, 'yt-dlp');
+    console.log('\n🔍 Checking for yt-dlp installation...');
+    console.log('   Expected location (from build.sh):', ytdlpExpectedPath);
+    console.log('   Bin directory exists:', fs.existsSync(binDir));
+    if (fs.existsSync(binDir)) {
+        try {
+            const binContents = fs.readdirSync(binDir);
+            console.log('   Bin directory contents:', binContents.join(', '));
+            if (binContents.includes('yt-dlp')) {
+                const stats = fs.statSync(ytdlpExpectedPath);
+                console.log('   ✅ yt-dlp file exists!');
+                console.log('   File size:', stats.size, 'bytes');
+                console.log('   Is executable:', (stats.mode & parseInt('111', 8)) !== 0);
+            } else {
+                console.log('   ❌ yt-dlp file NOT found in bin directory');
+            }
+        } catch (err) {
+            console.log('   ⚠️  Error reading bin directory:', err.message);
+        }
+    } else {
+        console.log('   ❌ bin directory does not exist!');
+        console.log('   This means build.sh may not have run or failed silently');
+    }
     
     // Check for yt-dlp at startup
     const ytdlpPath = await checkYtDlp();
@@ -1231,7 +1261,14 @@ app.listen(PORT, async () => {
     } else {
         console.log('⚠️  yt-dlp not found - will fallback to @distube/ytdl-core (may not work reliably)');
         console.log('   To install: brew install yt-dlp (Mac) or pip install yt-dlp (Linux)');
-        console.log('   For Render: Check build logs to ensure yt-dlp installation succeeded');
+        if (process.env.RENDER) {
+            console.log('   ⚠️  On Render: The bin/ directory may not be persisted between build and runtime');
+            console.log('   ⚠️  Check Render build logs for "yt-dlp INSTALLATION SUCCESSFUL" message');
+            console.log('   ⚠️  If build shows success but runtime doesn\'t find it, this is a Render file persistence issue');
+            console.log('   ⚠️  Solution: Install yt-dlp in the build command or use a different location');
+        } else {
+            console.log('   For Render: Check build logs to ensure yt-dlp installation succeeded');
+        }
     }
     
     // Check for FFmpeg

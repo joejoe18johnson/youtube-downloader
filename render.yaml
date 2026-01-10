@@ -2,7 +2,7 @@ services:
   - type: web
     name: youtube-downloader
     env: node
-    buildCommand: bash build.sh
+    buildCommand: bash build.sh && ls -la bin/ 2>/dev/null || echo "WARNING: bin directory check failed"
     startCommand: npm start
     envVars:
       - key: NODE_ENV
