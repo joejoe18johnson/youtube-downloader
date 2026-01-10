@@ -190,7 +190,7 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId, ytdlpPath
                 '--no-warnings',
                 '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 '--referer', 'https://www.youtube.com/',
-                '--extractor-args', 'youtube:player_client=android,web',
+                '--extractor-args', 'youtube:player_client=ios,tv_embedded,android,mweb,web',
                 url
             ];
             const { stdout: infoOutput } = await execAsync(`${ytdlpCmd} ${titleArgs.map(arg => `"${arg}"`).join(' ')}`, { timeout: 10000 });
@@ -215,8 +215,12 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId, ytdlpPath
             '--add-header', 'DNT:1',
             '--add-header', 'Connection:keep-alive',
             '--add-header', 'Upgrade-Insecure-Requests:1',
-            // Additional options to reduce bot detection - use mobile/web players
-            '--extractor-args', 'youtube:player_client=android,web',
+            // Try different player clients to avoid bot detection (try ios first, then fallback)
+            // iOS player is often less detected
+            '--extractor-args', 'youtube:player_client=ios,android,mweb,web',
+            // Additional options to reduce bot detection
+            '--no-check-certificate',
+            '--no-warnings',
         ];
 
         if (format === 'audio') {
@@ -324,7 +328,12 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId, ytdlpPath
                 }
                 
                 console.error('yt-dlp stderr:', stderrText);
-                reject(new Error(errorMsg));
+                const error = new Error(errorMsg);
+                // Add flag for bot detection to allow fallback
+                if (stderrText.includes('Sign in to confirm') || stderrText.includes('not a bot') || stderrText.includes('cookies')) {
+                    error.isBotDetection = true;
+                }
+                reject(error);
             }
         });
 
@@ -460,13 +469,24 @@ app.post('/api/download', async (req, res) => {
         // Check if yt-dlp is available - use it as it's more reliable
         const ytdlpPath = await checkYtDlp();
         
-        if (ytdlpPath) {
-            console.log('Using yt-dlp for download (more reliable)');
-            await downloadWithYtDlpStreaming(url, format, res, session, ytdlpPath);
-            return; // Exit early if yt-dlp download succeeds
-        }
-        
-        // Fallback to ytdl-core if yt-dlp is not available
+            if (ytdlpPath) {
+                console.log('Using yt-dlp for download (more reliable)');
+                try {
+                    await downloadWithYtDlpStreaming(url, format, res, session, ytdlpPath);
+                    return; // Exit early if yt-dlp download succeeds
+                } catch (ytdlpError) {
+                    // If yt-dlp fails due to bot detection, try ytdl-core as fallback
+                    if (ytdlpError.isBotDetection) {
+                        console.warn('yt-dlp blocked by YouTube bot detection, falling back to ytdl-core...');
+                        // Continue to ytdl-core fallback below
+                    } else {
+                        // Other errors - rethrow
+                        throw ytdlpError;
+                    }
+                }
+            }
+            
+            // Fallback to ytdl-core if yt-dlp is not available or blocked
         let info;
         try {
             info = await ytdl.getInfo(url, {
