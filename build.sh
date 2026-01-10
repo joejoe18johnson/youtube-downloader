@@ -51,32 +51,51 @@ echo "✅ Package installation completed successfully"
 # Create bin directory
 echo "📁 Creating bin directory..."
 mkdir -p bin
-echo "Created bin directory at: $(pwd)/bin"
+BIN_DIR="$(pwd)/bin"
+echo "Created bin directory at: $BIN_DIR"
 
 # Download yt-dlp
 echo "⬇️  Downloading yt-dlp from GitHub..."
 YTDLP_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+YTDLP_PATH="$BIN_DIR/yt-dlp"
 DOWNLOAD_SUCCESS=false
+
+echo "Target location: $YTDLP_PATH"
+echo "Download URL: $YTDLP_URL"
 
 # Try curl first
 if command -v curl &> /dev/null; then
     echo "Trying curl..."
-    if curl -f -L --retry 3 --max-time 60 --progress-bar "$YTDLP_URL" -o bin/yt-dlp; then
+    CURL_OUTPUT=$(curl -f -L --retry 3 --max-time 60 --progress-bar "$YTDLP_URL" -o "$YTDLP_PATH" 2>&1)
+    CURL_EXIT=$?
+    if [ $CURL_EXIT -eq 0 ] && [ -f "$YTDLP_PATH" ]; then
         echo "✅ yt-dlp downloaded successfully via curl"
         DOWNLOAD_SUCCESS=true
     else
-        echo "⚠️  curl download failed, trying wget..."
+        echo "⚠️  curl download failed (exit code: $CURL_EXIT)"
+        echo "curl output: $CURL_OUTPUT"
+        [ -f "$YTDLP_PATH" ] && rm -f "$YTDLP_PATH" 2>/dev/null || true
     fi
+else
+    echo "⚠️  curl not available, trying wget..."
 fi
 
 # Try wget if curl failed
 if [ "$DOWNLOAD_SUCCESS" = false ] && command -v wget &> /dev/null; then
     echo "Trying wget..."
-    if wget --timeout=60 --tries=3 --progress=bar:force "$YTDLP_URL" -O bin/yt-dlp 2>&1; then
+    WGET_OUTPUT=$(wget --timeout=60 --tries=3 --progress=bar:force "$YTDLP_URL" -O "$YTDLP_PATH" 2>&1)
+    WGET_EXIT=$?
+    if [ $WGET_EXIT -eq 0 ] && [ -f "$YTDLP_PATH" ]; then
         echo "✅ yt-dlp downloaded successfully via wget"
         DOWNLOAD_SUCCESS=true
     else
-        echo "⚠️  wget download failed"
+        echo "⚠️  wget download failed (exit code: $WGET_EXIT)"
+        echo "wget output: $WGET_OUTPUT"
+        [ -f "$YTDLP_PATH" ] && rm -f "$YTDLP_PATH" 2>/dev/null || true
+    fi
+else
+    if [ "$DOWNLOAD_SUCCESS" = false ]; then
+        echo "⚠️  wget not available either"
     fi
 fi
 
@@ -146,8 +165,39 @@ else
     echo "⚠️  Downloads may fail with 'YouTube structure change' error"
 fi
 echo ""
+echo ""
 echo "Final check - bin directory contents:"
-ls -la bin/ 2>/dev/null || echo "bin directory not accessible or empty"
+if [ -d bin ]; then
+    echo "✅ bin directory exists at: $BIN_DIR"
+    ls -la bin/ 2>/dev/null || echo "⚠️  Could not list bin directory contents"
+    if [ -f "$YTDLP_PATH" ]; then
+        echo "✅ yt-dlp file exists at: $YTDLP_PATH"
+        ls -lh "$YTDLP_PATH" 2>/dev/null || echo "⚠️  Could not get file details"
+        if [ -x "$YTDLP_PATH" ]; then
+            echo "✅ yt-dlp is executable"
+        else
+            echo "❌ yt-dlp is NOT executable - this will cause runtime issues!"
+        fi
+    else
+        echo "❌ yt-dlp file NOT found at: $YTDLP_PATH"
+        echo "⚠️  Server will not be able to use yt-dlp"
+    fi
+else
+    echo "❌ bin directory does not exist at: $BIN_DIR"
+fi
+echo ""
+
+# Print summary for Render logs
+if [ "$DOWNLOAD_SUCCESS" = true ] && [ -f "$YTDLP_PATH" ] && [ -x "$YTDLP_PATH" ]; then
+    echo "✅✅✅ yt-dlp INSTALLATION SUCCESSFUL ✅✅✅"
+    echo "File location: $YTDLP_PATH"
+    echo "Server should find it at: process.cwd()/bin/yt-dlp"
+    echo "Which is: $YTDLP_PATH"
+else
+    echo "⚠️⚠️⚠️  yt-dlp INSTALLATION FAILED ⚠️⚠️⚠️"
+    echo "Server will fallback to ytdl-core (may not work)"
+    echo "Check build logs above for download errors"
+fi
 echo ""
 
 # Always exit successfully (build succeeded even if yt-dlp installation failed)
