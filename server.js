@@ -81,7 +81,29 @@ async function checkYtDlp() {
             }
         }
         
-        // Try multiple paths and methods
+        // Check common installation paths directly (more reliable than 'which')
+        const commonPaths = [
+            '/usr/local/bin/yt-dlp',
+            '/usr/bin/yt-dlp',
+            path.join(os.homedir(), '.local', 'bin', 'yt-dlp'),
+            '/opt/homebrew/bin/yt-dlp'  // macOS Apple Silicon
+        ];
+        
+        for (const ytdlpPath of commonPaths) {
+            if (fs.existsSync(ytdlpPath)) {
+                try {
+                    const { stdout } = await execAsync(`"${ytdlpPath}" --version`, { timeout: 2000 });
+                    if (stdout.trim()) {
+                        console.log(`✅ yt-dlp found at: ${ytdlpPath} (version: ${stdout.trim()})`);
+                        return ytdlpPath;
+                    }
+                } catch (err) {
+                    console.warn(`yt-dlp found at ${ytdlpPath} but version check failed:`, err.message);
+                }
+            }
+        }
+        
+        // Try multiple paths and methods (fallback)
         const commands = [
             'which yt-dlp',
             'which youtube-dl',
