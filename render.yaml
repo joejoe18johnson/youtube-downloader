@@ -2,9 +2,11 @@ services:
   - type: web
     name: youtube-downloader
     env: node
-    nodeVersion: 20
+    plan: free
     buildCommand: bash build.sh
     startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: "20"
