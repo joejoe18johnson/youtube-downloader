@@ -146,13 +146,19 @@ async function checkYtDlp() {
         }
         
         console.warn('⚠️  yt-dlp not found. Will fallback to ytdl-core (may not work).');
-        console.warn('   Checked paths:', [
-            localBinPath,
-            '/usr/local/bin/yt-dlp',
-            '/usr/bin/yt-dlp',
-            '~/.local/bin/yt-dlp',
-            'PATH environment variable'
-        ].join(', '));
+        console.warn('   Checked paths:');
+        console.warn('   -', localBinPath);
+        console.warn('   -', cwdBinPath);
+        console.warn('   - /usr/local/bin/yt-dlp');
+        console.warn('   - /usr/bin/yt-dlp');
+        console.warn('   -', path.join(os.homedir(), '.local', 'bin', 'yt-dlp'));
+        console.warn('   - PATH environment variable');
+        console.warn('   Current working directory:', process.cwd());
+        console.warn('   __dirname:', __dirname);
+        if (process.env.RENDER) {
+            console.warn('   ⚠️  On Render: Check build logs to verify yt-dlp was installed to bin/yt-dlp');
+            console.warn('   ⚠️  Build script should install to:', path.join(process.cwd(), 'bin', 'yt-dlp'));
+        }
         return false;
     } catch (error) {
         console.warn('⚠️  Error checking for yt-dlp:', error.message);
@@ -444,9 +450,14 @@ app.post('/api/download', async (req, res) => {
                 
                 // Provide helpful error message with installation instructions
                 const errorMsg = process.env.RENDER ? 
-                    'YouTube has changed their website structure. Please install yt-dlp in your Render build command:\n\n' +
-                    'Build Command: npm install && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /tmp/yt-dlp && chmod +x /tmp/yt-dlp && sudo mv /tmp/yt-dlp /usr/local/bin/yt-dlp\n\n' +
-                    'See RENDER_DEPLOY.md for detailed instructions.' :
+                    'YouTube has changed their website structure. yt-dlp is not available.\n\n' +
+                    'This usually means the build script (build.sh) failed to install yt-dlp, or the server cannot find it.\n\n' +
+                    'To fix:\n' +
+                    '1. Check Render build logs for yt-dlp installation errors\n' +
+                    '2. Verify build.sh downloaded yt-dlp to bin/yt-dlp\n' +
+                    '3. Check runtime logs for "yt-dlp found at:" messages\n' +
+                    '4. The build command should be: bash build.sh\n\n' +
+                    'See RENDER_DEPLOY.md or RENDER_DEPLOYMENT_FIX.md for detailed instructions.' :
                     'YouTube has changed their website structure and the JavaScript library cannot parse it. For better compatibility, please install yt-dlp:\n\n' +
                     '• Mac: brew install yt-dlp\n' +
                     '• Linux: pip install yt-dlp OR curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && chmod +x /usr/local/bin/yt-dlp\n' +
