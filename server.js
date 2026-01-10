@@ -53,9 +53,43 @@ function checkFFmpeg() {
 // Check if yt-dlp is available
 async function checkYtDlp() {
     try {
-        const { stdout } = await execAsync('which yt-dlp || which youtube-dl');
-        return stdout.trim().length > 0;
-    } catch {
+        // Try multiple paths and methods
+        const commands = [
+            'which yt-dlp',
+            'which youtube-dl',
+            'command -v yt-dlp',
+            'test -f /usr/local/bin/yt-dlp && echo /usr/local/bin/yt-dlp',
+            'test -f /usr/bin/yt-dlp && echo /usr/bin/yt-dlp',
+            'test -f ~/.local/bin/yt-dlp && echo ~/.local/bin/yt-dlp'
+        ];
+        
+        for (const cmd of commands) {
+            try {
+                const { stdout } = await execAsync(cmd, { timeout: 2000 });
+                if (stdout.trim().length > 0) {
+                    console.log(`✅ yt-dlp found at: ${stdout.trim()}`);
+                    return true;
+                }
+            } catch {
+                continue;
+            }
+        }
+        
+        // Final check: try to run yt-dlp --version
+        try {
+            const { stdout } = await execAsync('yt-dlp --version', { timeout: 2000 });
+            if (stdout.trim()) {
+                console.log(`✅ yt-dlp is available (version: ${stdout.trim()})`);
+                return true;
+            }
+        } catch {
+            // yt-dlp not available
+        }
+        
+        console.warn('⚠️  yt-dlp not found. Will fallback to ytdl-core (may not work).');
+        return false;
+    } catch (error) {
+        console.warn('⚠️  Error checking for yt-dlp:', error.message);
         return false;
     }
 }
@@ -128,9 +162,13 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId) {
             // Try to parse progress if available (yt-dlp writes progress to stderr)
         });
 
-        // yt-dlp writes progress to stderr
+
+        // Collect stderr messages for error reporting
+        let stderrMessages = [];
         ytdlpProcess.stderr.on('data', (data) => {
             const progressText = data.toString();
+            stderrMessages.push(progressText);
+            
             // Parse progress: [download] XX.X% of Y.YMiB at Z.ZMiB/s ETA HH:MM:SS
             const progressMatch = progressText.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
             if (progressMatch) {
@@ -153,22 +191,40 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId) {
                 }, 5000);
                 resolve();
             } else {
-                reject(new Error(`yt-dlp failed with exit code ${code}`));
+                console.error(`yt-dlp process exited with code ${code}`);
+                const stderrText = stderrMessages.join('\n');
+                let errorMsg = `yt-dlp failed with exit code ${code}`;
+                
+                // Check stderr for error messages
+                if (stderrText.includes('ERROR:')) {
+                    const errorMatch = stderrText.match(/ERROR:\s*(.+)/i);
+                    if (errorMatch) {
+                        errorMsg = `yt-dlp error: ${errorMatch[1].trim()}`;
+                    }
+                }
+                
+                console.error('yt-dlp stderr:', stderrText);
+                reject(new Error(errorMsg));
             }
         });
 
         ytdlpProcess.on('error', (error) => {
+            console.error('yt-dlp spawn error:', error);
+            
             // If yt-dlp not found, try youtube-dl
             if (error.code === 'ENOENT' && command === 'yt-dlp') {
+                console.log('yt-dlp not found in PATH, trying youtube-dl...');
                 command = 'youtube-dl';
                 const ytdlProcess = spawn(command, args);
                 
                 ytdlProcess.stdout.on('data', (chunk) => {
+                    downloadedBytes += chunk.length;
                     res.write(chunk);
                 });
                 
                 ytdlProcess.stderr.on('data', (data) => {
                     const progressText = data.toString();
+                    // Parse progress: [download] XX.X% of Y.YMiB at Z.ZMiB/s ETA HH:MM:SS
                     const progressMatch = progressText.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
                     if (progressMatch) {
                         const percent = parseFloat(progressMatch[1]);
@@ -190,11 +246,13 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId) {
                         }, 5000);
                         resolve();
                     } else {
+                        console.error(`youtube-dl process exited with code ${code}`);
                         reject(new Error(`youtube-dl failed with exit code ${code}`));
                     }
                 });
                 
                 ytdlProcess.on('error', (err) => {
+                    console.error('youtube-dl spawn error:', err);
                     reject(new Error(`Neither yt-dlp nor youtube-dl found. Please install yt-dlp: pip install yt-dlp or brew install yt-dlp`));
                 });
             } else {
@@ -1066,7 +1124,7 @@ app.get('*', (req, res) => {
 // For API routes specifically, we can add logging middleware if needed
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`YouTube Downloader server running on http://localhost:${PORT}`);
     console.log('Registered routes:');
     console.log('  POST /api/download');
@@ -1074,6 +1132,26 @@ app.listen(PORT, () => {
     console.log('  GET /api/test');
     console.log('  GET /api/progress/:sessionId');
     console.log('  GET /api/mobile-download/:sessionId');
+    console.log('\nChecking dependencies...');
+    
+    // Check for yt-dlp at startup
+    const hasYtDlp = await checkYtDlp();
+    if (hasYtDlp) {
+        console.log('✅ yt-dlp is available - will use it for downloads (recommended)');
+    } else {
+        console.log('⚠️  yt-dlp not found - will fallback to @distube/ytdl-core (may not work reliably)');
+        console.log('   To install: brew install yt-dlp (Mac) or pip install yt-dlp (Linux)');
+    }
+    
+    // Check for FFmpeg
+    const hasFFmpeg = await checkFFmpeg();
+    if (hasFFmpeg) {
+        console.log('✅ FFmpeg is available - MP3 conversion and video merging enabled');
+    } else {
+        console.log('⚠️  FFmpeg not found - some features may be limited');
+        console.log('   To install: brew install ffmpeg (Mac) or apt install ffmpeg (Linux)');
+    }
+    
     console.log('\nServer ready to accept requests!');
 });
 
