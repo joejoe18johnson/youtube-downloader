@@ -53,31 +53,39 @@ function checkFFmpeg() {
 // Check if yt-dlp is available
 async function checkYtDlp() {
     try {
-        // First check local bin directory (for Render deployments)
-        const localBinPath = path.join(__dirname, 'bin', 'yt-dlp');
-        if (fs.existsSync(localBinPath)) {
-            try {
-                const { stdout } = await execAsync(`"${localBinPath}" --version`, { timeout: 2000 });
-                if (stdout.trim()) {
-                    console.log(`✅ yt-dlp found at: ${localBinPath} (version: ${stdout.trim()})`);
-                    return localBinPath; // Return path for use in spawn
-                }
-            } catch (err) {
-                console.warn(`yt-dlp found at ${localBinPath} but version check failed:`, err.message);
-            }
-        }
-        
-        // Check process.cwd() bin directory (for Render)
+        // First check process.cwd() bin directory (for Render deployments - this is where build.sh installs it)
         const cwdBinPath = path.join(process.cwd(), 'bin', 'yt-dlp');
         if (fs.existsSync(cwdBinPath)) {
             try {
-                const { stdout } = await execAsync(`"${cwdBinPath}" --version`, { timeout: 2000 });
+                const { stdout } = await execAsync(`"${cwdBinPath}" --version`, { timeout: 3000 });
                 if (stdout.trim()) {
                     console.log(`✅ yt-dlp found at: ${cwdBinPath} (version: ${stdout.trim()})`);
                     return cwdBinPath;
                 }
             } catch (err) {
                 console.warn(`yt-dlp found at ${cwdBinPath} but version check failed:`, err.message);
+                // Still return the path if file exists and is executable, even if version check fails
+                try {
+                    fs.accessSync(cwdBinPath, fs.constants.X_OK);
+                    console.log(`⚠️  yt-dlp at ${cwdBinPath} exists and is executable (version check failed, but will try to use it)`);
+                    return cwdBinPath;
+                } catch {
+                    // Not executable, skip it
+                }
+            }
+        }
+        
+        // Check __dirname bin directory (for local development)
+        const localBinPath = path.join(__dirname, 'bin', 'yt-dlp');
+        if (fs.existsSync(localBinPath)) {
+            try {
+                const { stdout } = await execAsync(`"${localBinPath}" --version`, { timeout: 3000 });
+                if (stdout.trim()) {
+                    console.log(`✅ yt-dlp found at: ${localBinPath} (version: ${stdout.trim()})`);
+                    return localBinPath; // Return path for use in spawn
+                }
+            } catch (err) {
+                console.warn(`yt-dlp found at ${localBinPath} but version check failed:`, err.message);
             }
         }
         
