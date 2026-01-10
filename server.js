@@ -184,12 +184,22 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId, ytdlpPath
         try {
             // Get video title using yt-dlp (use path if it's a full path, otherwise use as command)
             const ytdlpCmd = ytdlpPath.includes('/') ? `"${ytdlpPath}"` : ytdlpPath;
-            const { stdout: infoOutput } = await execAsync(`${ytdlpCmd} --get-title --no-playlist "${url}"`, { timeout: 10000 });
+            const titleArgs = [
+                '--get-title',
+                '--no-playlist',
+                '--no-warnings',
+                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                '--referer', 'https://www.youtube.com/',
+                '--extractor-args', 'youtube:player_client=android,web',
+                url
+            ];
+            const { stdout: infoOutput } = await execAsync(`${ytdlpCmd} ${titleArgs.map(arg => `"${arg}"`).join(' ')}`, { timeout: 10000 });
             if (infoOutput && infoOutput.trim()) {
                 videoTitle = sanitizeFilename(infoOutput.trim());
             }
         } catch (err) {
             console.warn('Could not get video title from yt-dlp, using default:', err.message);
+            // If it's a bot detection error, we'll handle it in the main download
         }
         
         let args = [
@@ -197,6 +207,19 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId, ytdlpPath
             '--no-playlist',
             '--no-warnings',
             '-o', '-', // Output to stdout
+            // Reduce bot detection - make it look more like a browser
+            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            '--referer', 'https://www.youtube.com/',
+            '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            '--add-header', 'Accept-Language:en-US,en;q=0.5',
+            '--add-header', 'Accept-Encoding:gzip, deflate',
+            '--add-header', 'DNT:1',
+            '--add-header', 'Connection:keep-alive',
+            '--add-header', 'Upgrade-Insecure-Requests:1',
+            // Additional options to reduce bot detection
+            '--extractor-args', 'youtube:player_client=android,web',
+            '--no-check-certificate',
+            '--prefer-insecure',
         ];
 
         if (format === 'audio') {
@@ -277,12 +300,26 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId, ytdlpPath
                 const stderrText = stderrMessages.join('\n');
                 let errorMsg = `yt-dlp failed with exit code ${code}`;
                 
-                // Check stderr for error messages
+                // Check stderr for specific error messages
                 if (stderrText.includes('ERROR:')) {
                     const errorMatch = stderrText.match(/ERROR:\s*(.+)/i);
                     if (errorMatch) {
-                        errorMsg = `yt-dlp error: ${errorMatch[1].trim()}`;
+                        const errorDetail = errorMatch[1].trim();
+                        errorMsg = `yt-dlp error: ${errorDetail}`;
+                        
+                        // Handle bot detection specifically
+                        if (errorDetail.includes('Sign in to confirm') || errorDetail.includes('not a bot') || errorDetail.includes('cookies')) {
+                            errorMsg = 'YouTube is blocking automated access. This video may require authentication or may be temporarily unavailable. Please try again later or use a different video.';
+                        } else if (errorDetail.includes('Private video') || errorDetail.includes('private')) {
+                            errorMsg = 'This video is private and cannot be downloaded.';
+                        } else if (errorDetail.includes('unavailable') || errorDetail.includes('deleted')) {
+                            errorMsg = 'This video is unavailable. It may have been deleted or is restricted in your region.';
+                        } else if (errorDetail.includes('age') || errorDetail.includes('confirm your age')) {
+                            errorMsg = 'This video is age-restricted and cannot be downloaded.';
+                        }
                     }
+                } else if (stderrText.includes('Sign in to confirm') || stderrText.includes('not a bot')) {
+                    errorMsg = 'YouTube is blocking automated access. This video may require authentication or may be temporarily unavailable. Please try again later or use a different video.';
                 }
                 
                 console.error('yt-dlp stderr:', stderrText);
