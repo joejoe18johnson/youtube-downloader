@@ -10,6 +10,20 @@ echo "Current directory: $(pwd)"
 echo "Node version: $(node --version 2>/dev/null || echo 'not available')"
 echo "NPM version: $(npm --version 2>/dev/null || echo 'not available')"
 
+# Check Node version requirement
+REQUIRED_NODE="20.18.1"
+CURRENT_NODE=$(node --version 2>/dev/null | sed 's/v//' || echo "0.0.0")
+echo "Current Node version: $CURRENT_NODE"
+echo "Required Node version: >=$REQUIRED_NODE"
+
+# Try to use .nvmrc if available and nvm is installed
+if [ -f .nvmrc ] && command -v nvm &> /dev/null; then
+    echo "Found .nvmrc file, using nvm to switch Node version..."
+    source ~/.nvm/nvm.sh 2>/dev/null || true
+    nvm use 2>/dev/null || nvm install 20 2>/dev/null || echo "⚠️  nvm not available or failed"
+    echo "Node version after nvm: $(node --version 2>/dev/null || echo 'not available')"
+fi
+
 # Install npm dependencies (this must succeed for build to work)
 echo "📦 Installing npm dependencies..."
 npm install
