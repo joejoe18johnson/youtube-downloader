@@ -253,10 +253,9 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId, ytdlpPath
         console.log(`Using yt-dlp at: ${command}`);
         console.log(`yt-dlp args: ${args.slice(0, 5).join(' ')}... (total ${args.length} args)`);
         
-        try {
-            const ytdlpProcess = spawn(command, args, {
-                stdio: ['ignore', 'pipe', 'pipe'] // stdin, stdout, stderr
-            });
+        const ytdlpProcess = spawn(command, args, {
+            stdio: ['ignore', 'pipe', 'pipe'] // stdin, stdout, stderr
+        });
 
         let downloadedBytes = 0;
         let totalBytes = 0;
@@ -385,6 +384,7 @@ async function downloadWithYtDlpStreaming(url, format, res, sessionId, ytdlpPath
         res.on('close', () => {
             if (!ytdlpProcess.killed) {
                 ytdlpProcess.kill();
+                console.warn(`Download process for session ${sessionId} killed due to client disconnect.`);
             }
         });
     });
