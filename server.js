@@ -1210,49 +1210,50 @@ app.get('*', (req, res) => {
 // Unmatched routes will naturally return 404
 // For API routes specifically, we can add logging middleware if needed
 
-// Start server
+// Start server with error handling
 app.listen(PORT, async () => {
-    console.log(`YouTube Downloader server running on http://localhost:${PORT}`);
-    console.log('Node version:', process.version);
-    console.log('Platform:', process.platform);
-    console.log('Current working directory:', process.cwd());
-    console.log('__dirname:', __dirname);
-    console.log('\nRegistered routes:');
-    console.log('  POST /api/download');
-    console.log('  POST /api/test-post');
-    console.log('  GET /api/test');
-    console.log('  GET /api/progress/:sessionId');
-    console.log('  GET /api/mobile-download/:sessionId');
-    console.log('\nChecking dependencies...');
-    
-    // Detailed check for bin directory
-    const binDir = path.join(process.cwd(), 'bin');
-    const ytdlpExpectedPath = path.join(binDir, 'yt-dlp');
-    console.log('\n🔍 Checking for yt-dlp installation...');
-    console.log('   Expected location (from build.sh):', ytdlpExpectedPath);
-    console.log('   Bin directory exists:', fs.existsSync(binDir));
-    if (fs.existsSync(binDir)) {
-        try {
-            const binContents = fs.readdirSync(binDir);
-            console.log('   Bin directory contents:', binContents.join(', '));
-            if (binContents.includes('yt-dlp')) {
-                const stats = fs.statSync(ytdlpExpectedPath);
-                console.log('   ✅ yt-dlp file exists!');
-                console.log('   File size:', stats.size, 'bytes');
-                console.log('   Is executable:', (stats.mode & parseInt('111', 8)) !== 0);
-            } else {
-                console.log('   ❌ yt-dlp file NOT found in bin directory');
+    try {
+        console.log(`YouTube Downloader server running on http://localhost:${PORT}`);
+        console.log('Node version:', process.version);
+        console.log('Platform:', process.platform);
+        console.log('Current working directory:', process.cwd());
+        console.log('__dirname:', __dirname);
+        console.log('\nRegistered routes:');
+        console.log('  POST /api/download');
+        console.log('  POST /api/test-post');
+        console.log('  GET /api/test');
+        console.log('  GET /api/progress/:sessionId');
+        console.log('  GET /api/mobile-download/:sessionId');
+        console.log('\nChecking dependencies...');
+        
+        // Detailed check for bin directory
+        const binDir = path.join(process.cwd(), 'bin');
+        const ytdlpExpectedPath = path.join(binDir, 'yt-dlp');
+        console.log('\n🔍 Checking for yt-dlp installation...');
+        console.log('   Expected location (from build.sh):', ytdlpExpectedPath);
+        console.log('   Bin directory exists:', fs.existsSync(binDir));
+        if (fs.existsSync(binDir)) {
+            try {
+                const binContents = fs.readdirSync(binDir);
+                console.log('   Bin directory contents:', binContents.join(', '));
+                if (binContents.includes('yt-dlp')) {
+                    const stats = fs.statSync(ytdlpExpectedPath);
+                    console.log('   ✅ yt-dlp file exists!');
+                    console.log('   File size:', stats.size, 'bytes');
+                    console.log('   Is executable:', (stats.mode & parseInt('111', 8)) !== 0);
+                } else {
+                    console.log('   ❌ yt-dlp file NOT found in bin directory');
+                }
+            } catch (err) {
+                console.log('   ⚠️  Error reading bin directory:', err.message);
             }
-        } catch (err) {
-            console.log('   ⚠️  Error reading bin directory:', err.message);
+        } else {
+            console.log('   ❌ bin directory does not exist!');
+            console.log('   This means build.sh may not have run or failed silently');
         }
-    } else {
-        console.log('   ❌ bin directory does not exist!');
-        console.log('   This means build.sh may not have run or failed silently');
-    }
-    
-    // Check for yt-dlp at startup
-    let ytdlpPath = await checkYtDlp();
+        
+        // Check for yt-dlp at startup
+        let ytdlpPath = await checkYtDlp();
     if (ytdlpPath) {
         console.log('✅ yt-dlp is available - will use it for downloads (recommended)');
         if (ytdlpPath !== 'yt-dlp' && ytdlpPath !== 'youtube-dl') {
@@ -1278,24 +1279,40 @@ app.listen(PORT, async () => {
                 // Try curl first
                 try {
                     console.log('   Trying curl...');
-                    execSync(`curl -f -L --retry 3 --max-time 60 "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -o "${ytdlpExpectedPath}"`, {
-                        stdio: 'inherit',
-                        timeout: 65000
+                    execSync(`curl -f -L --retry 3 --max-time 60 --silent --show-error "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -o "${ytdlpExpectedPath}"`, {
+                        stdio: ['ignore', 'pipe', 'pipe'],
+                        timeout: 65000,
+                        encoding: 'utf8'
                     });
-                    downloadSuccess = true;
-                    console.log('   ✅ Downloaded via curl');
+                    if (fs.existsSync(ytdlpExpectedPath) && fs.statSync(ytdlpExpectedPath).size > 0) {
+                        downloadSuccess = true;
+                        console.log('   ✅ Downloaded via curl');
+                    } else {
+                        throw new Error('File was not created or is empty');
+                    }
                 } catch (curlError) {
-                    console.log('   ⚠️  curl failed, trying wget...');
+                    console.log('   ⚠️  curl failed:', curlError.message);
+                    // Clean up partial download
+                    try { if (fs.existsSync(ytdlpExpectedPath)) fs.unlinkSync(ytdlpExpectedPath); } catch {}
                     // Try wget
                     try {
-                        execSync(`wget --timeout=60 --tries=3 "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -O "${ytdlpExpectedPath}"`, {
-                            stdio: 'inherit',
-                            timeout: 65000
+                        console.log('   Trying wget...');
+                        execSync(`wget --timeout=60 --tries=3 --quiet "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -O "${ytdlpExpectedPath}"`, {
+                            stdio: ['ignore', 'pipe', 'pipe'],
+                            timeout: 65000,
+                            encoding: 'utf8'
                         });
-                        downloadSuccess = true;
-                        console.log('   ✅ Downloaded via wget');
+                        if (fs.existsSync(ytdlpExpectedPath) && fs.statSync(ytdlpExpectedPath).size > 0) {
+                            downloadSuccess = true;
+                            console.log('   ✅ Downloaded via wget');
+                        } else {
+                            throw new Error('File was not created or is empty');
+                        }
                     } catch (wgetError) {
-                        console.log('   ⚠️  wget also failed, trying https module...');
+                        console.log('   ⚠️  wget also failed:', wgetError.message);
+                        // Clean up partial download
+                        try { if (fs.existsSync(ytdlpExpectedPath)) fs.unlinkSync(ytdlpExpectedPath); } catch {}
+                        console.log('   ⚠️  Will try https module...');
                     }
                 }
                 
@@ -1345,8 +1362,13 @@ app.listen(PORT, async () => {
                     console.log('   ✅ Downloaded via https module');
                 }
                 
-                // Make executable
-                if (fs.existsSync(ytdlpExpectedPath)) {
+                // Make executable and verify
+                if (downloadSuccess && fs.existsSync(ytdlpExpectedPath)) {
+                    const fileSize = fs.statSync(ytdlpExpectedPath).size;
+                    if (fileSize === 0) {
+                        throw new Error('Downloaded file is empty');
+                    }
+                    console.log(`   File size: ${fileSize} bytes`);
                     fs.chmodSync(ytdlpExpectedPath, 0o755);
                     console.log('   ✅ Made yt-dlp executable');
                     
@@ -1356,7 +1378,7 @@ app.listen(PORT, async () => {
                         console.log('   ✅✅✅ yt-dlp downloaded and installed successfully at runtime!');
                         console.log(`   Location: ${ytdlpPath}`);
                     } else {
-                        console.log('   ⚠️  Runtime download succeeded but file is not usable (may need version check)');
+                        console.log('   ⚠️  Runtime download succeeded but version check failed');
                         // Even if version check fails, try to use it if it exists and is executable
                         if (fs.existsSync(ytdlpExpectedPath)) {
                             try {
@@ -1368,8 +1390,12 @@ app.listen(PORT, async () => {
                             }
                         }
                     }
+                } else if (!downloadSuccess) {
+                    // downloadSuccess is false, meaning all download attempts failed
+                    throw new Error('All download methods (curl, wget, https) failed');
                 } else {
-                    throw new Error('File was not created after download');
+                    // downloadSuccess is true but file doesn't exist - shouldn't happen, but handle it
+                    throw new Error('Download reported success but file was not created');
                 }
             } catch (runtimeDownloadError) {
                 console.log('   ❌ Runtime download failed:', runtimeDownloadError.message);
@@ -1400,6 +1426,24 @@ app.listen(PORT, async () => {
         console.log('   To install: brew install ffmpeg (Mac) or apt install ffmpeg (Linux)');
     }
     
-    console.log('\nServer ready to accept requests!');
+        console.log('\nServer ready to accept requests!');
+    } catch (startupError) {
+        console.error('❌ ERROR during server startup:', startupError);
+        console.error('Stack:', startupError.stack);
+        console.error('Server will continue but may have issues');
+    }
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+    // Don't exit - let the server continue running
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+    console.error('❌ Uncaught Exception:', error);
+    console.error('Stack:', error.stack);
+    // Don't exit - let the server continue running (might want to restart in production)
 });
 
