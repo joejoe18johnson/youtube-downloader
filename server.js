@@ -1312,7 +1312,7 @@ app.listen(PORT, async () => {
                             // Handle redirects
                             if (response.statusCode === 301 || response.statusCode === 302 || response.statusCode === 307 || response.statusCode === 308) {
                                 file.close();
-                                fs.unlinkSync(ytdlpExpectedPath).catch(() => {});
+                                try { fs.unlinkSync(ytdlpExpectedPath); } catch {}
                                 const redirectUrl = response.headers.location;
                                 console.log('   Following redirect to:', redirectUrl);
                                 return client.get(redirectUrl, (redirectResponse) => {
@@ -1324,7 +1324,7 @@ app.listen(PORT, async () => {
                             
                             if (response.statusCode !== 200) {
                                 file.close();
-                                fs.unlinkSync(ytdlpExpectedPath).catch(() => {});
+                                try { fs.unlinkSync(ytdlpExpectedPath); } catch {}
                                 return reject(new Error(`HTTP ${response.statusCode}`));
                             }
                             
