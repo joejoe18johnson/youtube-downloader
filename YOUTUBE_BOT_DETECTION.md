@@ -125,3 +125,4 @@ If bot detection becomes a persistent issue:
 
 If you still see bot detection errors, it means YouTube has updated their detection methods and we may need to add cookies or update yt-dlp to the latest version.
 
+

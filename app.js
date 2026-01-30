@@ -1,3 +1,13 @@
+// API base URL - use current origin when served over http(s), else fallback so file:// still has a target
+function getApiBase() {
+    const o = window.location.origin;
+    if (o && (o.startsWith('http:') || o.startsWith('https:'))) return o;
+    return 'http://localhost:3000';
+}
+function isOpenedAsFile() {
+    return !window.location.origin || window.location.protocol === 'file:';
+}
+
 // State management
 let selectedFormat = 'video';
 let currentDownloadAbortController = null;
@@ -11,7 +21,7 @@ let isDownloadComplete = false;
 let urlInput, pasteBtn, clearBtn, videoBtn, audioBtn, downloadBtn;
 let progressSection, progressText, progressBar, cancelBtn;
 let qrCodeContainer, qrcodeDiv;
-let viewFileSection, openDownloadsBtn, viewFileName, closeViewBtn;
+let viewFileSection, viewFileName, closeViewBtn;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -29,12 +39,20 @@ document.addEventListener('DOMContentLoaded', () => {
     qrCodeContainer = document.getElementById('qrCodeContainer');
     qrcodeDiv = document.getElementById('qrcode');
     viewFileSection = document.getElementById('viewFileSection');
-    openDownloadsBtn = document.getElementById('openDownloadsBtn');
     viewFileName = document.getElementById('viewFileName');
     closeViewBtn = document.getElementById('closeViewBtn');
     
     console.log('DOM elements loaded. Paste button:', pasteBtn ? 'Found' : 'NOT FOUND');
-    
+
+    if (isOpenedAsFile()) {
+        const banner = document.createElement('div');
+        banner.id = 'file-protocol-banner';
+        banner.setAttribute('role', 'alert');
+        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#dc2626;color:#fff;padding:12px 16px;text-align:center;font-size:14px;font-weight:500;box-shadow:0 2px 8px rgba(0,0,0,0.2);';
+        banner.innerHTML = 'This page was opened as a file. Downloads will not work. Run the server (<strong>npm start</strong>) and open <a href="http://localhost:3000" style="color:#fef08a;text-decoration:underline;">http://localhost:3000</a> in your browser.';
+        document.body.prepend(banner);
+    }
+
     setupEventListeners();
     setActiveFormat('video');
     // Initialize QR code container (always visible, but empty until download starts)
@@ -168,29 +186,6 @@ function setupEventListeners() {
     // Cancel button
     cancelBtn.addEventListener('click', cancelDownload);
 
-    // Open Downloads folder button
-    if (openDownloadsBtn) {
-        openDownloadsBtn.addEventListener('click', () => {
-            // Try to open Downloads folder (limited browser support due to security)
-            const fileName = currentFileName || 'download';
-            
-            // Try Chrome/Edge downloads page (won't work from web pages due to security)
-            try {
-                if (/Chrome|Edg/.test(navigator.userAgent)) {
-                    // This usually won't work from web pages, but we'll try
-                    window.location.href = 'chrome://downloads';
-                    // If it doesn't work, the catch will handle it
-                    return;
-                }
-            } catch (e) {
-                // Cannot open - show simple message
-            }
-            
-            // Show simple prompt (this will be the default behavior)
-            alert(`File has been saved to your Downloads folder.\n\nFile name: ${fileName}`);
-        });
-    }
-
     // Close view section button
     if (closeViewBtn) {
         closeViewBtn.addEventListener('click', () => {
@@ -288,7 +283,7 @@ async function startDownload() {
         // Start progress polling
         progressInterval = setInterval(async () => {
             try {
-                const progressResponse = await fetch(`/api/progress/${sessionId}`);
+                const progressResponse = await fetch(`${getApiBase()}/api/progress/${sessionId}`);
                 if (progressResponse.ok) {
                     const contentType = progressResponse.headers.get('content-type');
                     if (contentType && contentType.includes('application/json')) {
@@ -315,11 +310,11 @@ async function startDownload() {
         }, 500);
 
         // Start download
-        const apiEndpoint = '/api/download';
+        const apiEndpoint = getApiBase() + '/api/download';
         console.log('Starting download request to:', apiEndpoint);
         console.log('Request details:', { url, format: selectedFormat, sessionId });
-        console.log('Full URL will be:', window.location.origin + apiEndpoint);
-        
+        console.log('Full URL will be:', apiEndpoint);
+
         const response = await fetch(apiEndpoint, {
             method: 'POST',
             headers: {
@@ -476,7 +471,7 @@ function generateQRCode(sessionId) {
     qrcodeDiv.innerHTML = '';
 
     // Create download URL for mobile
-    const downloadUrl = `${window.location.origin}/api/mobile-download/${sessionId}?format=${selectedFormat}`;
+    const downloadUrl = `${getApiBase()}/api/mobile-download/${sessionId}?format=${selectedFormat}`;
 
     // Generate QR code using QRious
     if (typeof QRious !== 'undefined') {

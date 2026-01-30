@@ -109,3 +109,4 @@ The code already checks `/usr/local/bin/yt-dlp` directly, so this shouldn't be n
 
 Just **restart your server** and the error should be fixed! 🚀
 
+

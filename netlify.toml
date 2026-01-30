@@ -1,22 +1,24 @@
+# Netlify configuration
+#
+# IMPORTANT: This app needs a Node.js backend (Express, ytdl-core, ffmpeg, yt-dlp)
+# for downloads. Netlify only serves static files and serverless functions with
+# strict time limits (10–26s), so it cannot run the full backend.
+#
+# Best option: Deploy the full app to Render (see render.yaml). Render runs the
+# Node server and build.sh installs yt-dlp.
+#
+# If you use Netlify anyway (frontend only), you must host the backend elsewhere
+# (e.g. Render) and set the API base in the frontend (e.g. via build env).
+
 [build]
   publish = "."
-  command = "npm install"
+  command = "npm run build:css"
 
+# SPA-style: serve index.html for routes that don't match a file (e.g. /some-path)
 [[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/:splat"
+  from = "/*"
+  to = "/index.html"
   status = 200
 
-[functions]
-  directory = "netlify/functions"
-  node_bundler = "esbuild"
-  
-# Note: Netlify Functions have timeout limits:
-# - Free tier: 10 seconds
-# - Pro tier: 26 seconds  
-# - Business: 60 seconds
-# 
-# YouTube video downloads typically take longer than these limits.
-# Consider using Netlify Background Functions for longer operations,
-# or deploy to a platform that supports long-running processes (Render, Railway, Heroku, etc.)
-
+[build.environment]
+  NODE_VERSION = "20"
